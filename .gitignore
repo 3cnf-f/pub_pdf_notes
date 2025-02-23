@@ -1,0 +1,15 @@
+.venv
+*secret*
+*pycache*
+*.pdf
+*.png
+*.jpeg
+*.jpg
+*.zip
+*.json
+*.txt
+*.log
+example.log
+*.md
+*.ipynb
+
