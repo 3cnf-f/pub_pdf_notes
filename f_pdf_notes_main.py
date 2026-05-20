@@ -62,11 +62,11 @@ def pdf_json_ipynb(pdf_file_path):
     print(folder_name,pdf_file_path,md_name)
 
 if __name__ == '__main__':
-    arg_pdf_file_path = argv[1]   # runs on arg instead of hard set
-    pdf_json_ipynb(arg_pdf_file_path)
-
-
-test=False
-if test:
-    tst_pdf_file_path="/config/workspace/pdf_notes/r01.pdf"
+#     arg_pdf_file_path = argv[1]   # runs on arg instead of hard set
+#     pdf_json_ipynb(arg_pdf_file_path)
+#
+#
+# test=True
+# if test:
+    tst_pdf_file_path="./r01.pdf"
     pdf_json_ipynb(tst_pdf_file_path)

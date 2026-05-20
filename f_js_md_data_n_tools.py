@@ -16,17 +16,26 @@ def cr(nos=1):
 
 def line_dump(indic,key):
     outstr=""
-    outstr+=cr()+str(key)+": "+indic[key]
+    try:
+        outstr+=cr()+str(key)+": "+indic[key]
+    except:
+        outstr+=cr()+str(key)+": None"
     return outstr
 
 def just_text(indic,key):
     outstr=""
-    outstr+=indic[key]
+    try:
+        outstr+=indic[key]
+    except:
+        outstr+="None"
     return outstr
 
 def heading_3(indic,key):
     outstr=""
-    outstr+=cr()+"### "+indic[key]
+    try:
+        outstr+=cr()+"### "+indic[key]
+    except:
+        outstr+=cr()+"### None"
     return outstr
 
 def heading_2(indic,key):

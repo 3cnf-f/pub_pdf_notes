@@ -209,11 +209,11 @@ def convert_json_to_MD(in_filname,out_filname,att_base_url=""):
  
  #not finished
 
-testrun=False
+testrun=True
 
 if testrun:
-    tst_outfile="/config/workspace/pdf_notes/out_test.md"
-    tst_infile="devast_metabol_newborb/devast_metabol_newborb.json"
+    tst_outfile="./out_test.md"
+    tst_infile="./r01/r01.json"
     convert_json_to_MD(tst_infile,tst_outfile)
 
     
