@@ -1,80 +1,62 @@
+"""Tiny helpers for building Silverbullet-flavoured Markdown.
+
+Dependency-free string builders used by ``f_json_md`` when exporting the
+annotation JSON to a Markdown file.
+"""
+
 import json
-conv_tab_file_header=[
-    {"to_list":"uuid4","from_list":"uuid4"},
-    {"to_list":"DOI","from_list":"DOI"},
-    {"to_list":"orig_full_pdf_path","from_list":"filename"},
-    {"to_list":"datetime_stockholm","from_list":"datetime_stockholm"}
-    ]
 
-start_code_block="\n```pdf_data\n" 
-end_code_block="\n```\n" 
-def cr(nos=1):
-    stringout=""
-    for i in range(nos):
-        stringout+=("\n") 
-    return stringout
+START_CODE_BLOCK = "\n```pdf_data\n"
+END_CODE_BLOCK = "\n```\n"
 
-def line_dump(indic,key):
-    outstr=""
-    try:
-        outstr+=cr()+str(key)+": "+indic[key]
-    except:
-        outstr+=cr()+str(key)+": None"
-    return outstr
-
-def just_text(indic,key):
-    outstr=""
-    try:
-        outstr+=indic[key]
-    except:
-        outstr+="None"
-    return outstr
-
-def heading_3(indic,key):
-    outstr=""
-    try:
-        outstr+=cr()+"### "+indic[key]
-    except:
-        outstr+=cr()+"### None"
-    return outstr
-
-def heading_2(indic,key):
-    outstr=""
-    outstr+=cr()+"## "+indic[key]
-    return outstr
-
-def h3_plain(in_string):
-    outstr=""
-    outstr+="\n### "+in_string
-    return outstr
+#: Value used when a key is missing from the annotation data.
+DEFAULT = "N/A"
 
 
+def newlines(count=1):
+    """Return ``count`` newline characters."""
+    return "\n" * count
 
 
-def details_summary(in_summary):
-    outstr=""
-    outstr+=cr()+"<details><summary>"+in_summary+"</summary>"+cr()
-    return outstr
+def key_value_line(data, key):
+    """Format a single ``key: value`` line (falls back to :data:`DEFAULT`)."""
+    return newlines() + f"{key}: {data.get(key, DEFAULT)}"
 
 
-    
+def value_or_default(data, key):
+    """Return ``data[key]``, or :data:`DEFAULT` when missing/empty."""
+    return str(data.get(key) or DEFAULT)
+
+
+def heading(data, key, level=3):
+    """Return a Markdown heading for ``data[key]`` at the given level."""
+    return newlines() + "#" * level + " " + value_or_default(data, key)
+
+
+def plain_heading(text, level=4):
+    """Return a Markdown heading for literal ``text`` at the given level."""
+    return newlines() + "#" * level + " " + text
+
+
+def details(summary):
+    """Open a collapsible ``<details>`` block with ``summary``."""
+    return newlines() + f"<details><summary>{summary}</summary>" + newlines()
+
+
 def end_details():
-    outstr=""
-    outstr+=cr()+"</details>\n"
-    return outstr
+    """Close a collapsible ``<details>`` block."""
+    return newlines() + "</details>\n"
 
-def dump_image_same_folder(in_path,width="",height=""):
-    is_x=""
-    is_pipe=""
-    if width!="" or height!="":
-        is_pipe="|"
-    if height!="":
-        is_x="x"
-    outstr=""
-    outstr+=cr()+"![img]("+in_path+is_pipe+width+is_x+height+")"+cr(1)
-    return outstr
 
-def load_json_for_conversion(in_filename):
-    with open(in_filename,"r",encoding='utf-8') as infile:
-        indata=json.load(infile)
-    return indata
+def image_ref(path, width="", height=""):
+    """Build a Markdown image reference with optional Silverbullet sizing."""
+    size = ""
+    if width or height:
+        size = "|" + width + ("x" + height if height else "")
+    return newlines() + f"![img]({path}{size})" + newlines()
+
+
+def load_json(path):
+    """Read a UTF-8 JSON file and return its contents."""
+    with open(path, "r", encoding="utf-8") as infile:
+        return json.load(infile)

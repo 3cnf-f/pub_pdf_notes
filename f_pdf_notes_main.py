@@ -1,72 +1,60 @@
-import logging
-import pdf2_pdf_t_json as f_pj
-import f_json_md as f_jm 
-import f_json_ipynb as f_ji
-from sys import argv  
-import os
-from os import makedirs as o_makedirs
-from os import path as o_p
-from shutil import copy as s_copy
-from shutil import make_archive as s_ma
+"""End-to-end pipeline: PDF -> JSON / Markdown / notebook + images + zip.
+
+The library entry point is :func:`convert_pdf`; run the module directly for a
+command-line interface.
+"""
 
 import json
+import os
+from shutil import copy, make_archive
+
+import f_json_ipynb as ipynb
+import f_json_md as markdown
+import pdf2_pdf_t_json as exporter
 
 
+def convert_pdf(pdf_path, export_markdown=False, export_notebook=True, make_zip=True):
+    """Process ``pdf_path`` into a per-PDF folder of outputs.
 
- 
-logger = logging.getLogger(__name__)
-FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-logging.basicConfig(filename='example.log', encoding='utf-8', format=FORMAT)
-logger.setLevel(logging.DEBUG)
- 
+    Creates ``<name>/`` containing a copy of the source PDF, the annotation
+    JSON, extracted images, and (optionally) Markdown/notebook exports plus a
+    zip archive. Returns the path of the written JSON file.
+    """
+    name = os.path.splitext(os.path.basename(pdf_path))[0]
+    os.makedirs(name, exist_ok=True)
 
+    json_path = os.path.join(name, name + ".json")
+    md_path = os.path.join(name, name + ".md")
+    ipynb_path = os.path.join(name, name + ".ipynb")
 
+    data = exporter.process_pdf(pdf_path, name)
 
+    with open(json_path, "w", encoding="utf-8") as outfile:
+        json.dump(data, outfile, indent=4)
 
-def pdf_json_ipynb(pdf_file_path):
+    if export_markdown:
+        markdown.json_to_markdown(json_path, md_path)
+    if export_notebook:
+        ipynb.json_to_notebook(json_path, ipynb_path)
 
+    copy(pdf_path, os.path.join(name, name + ".pdf"))
+    if make_zip:
+        make_archive(name, "zip", name + "/")
 
-    
-    folder_name = f"{os.path.basename(pdf_file_path).split('.')[0]}"
-
-    if not o_p.exists(folder_name):
-        o_makedirs(folder_name)
-
-    local_img_folder = folder_name  # Local directory path
-    print(folder_name)
-    # Process the PDF
-    #(os.listdir('/p01'))
-    ipynb_name = f"{os.path.basename(pdf_file_path).split('.')[0]}.ipynb"
-    ipynb_name = local_img_folder+"/"+ipynb_name
-    md_name = f"{os.path.basename(pdf_file_path).split('.')[0]}.md"
-    md_name = local_img_folder+"/"+md_name
-
-    data = f_pj.process_pdf_annotations(pdf_file_path, local_img_folder)
-
-    json_filename= folder_name+"/"+folder_name+".json"
-    print(data)
-    print(json_filename)
-
-    with open(json_filename,"w") as ff:
-        json.dump(data,ff,indent=4)
-
-    #f_jm.convert_json_to_MD(json_filename,md_name,)
-    f_ji.l_j_mk_n_sv_ipynb(json_filename,ipynb_name)
+    return json_path
 
 
+def main(argv=None):
+    """Command-line entry point: ``convert_pdf`` for the first argument."""
+    import sys
+
+    argv = argv if argv is not None else sys.argv[1:]
+    if not argv:
+        print("usage: python f_pdf_notes_main.py <input.pdf>")
+        return 1
+    convert_pdf(argv[0])
+    return 0
 
 
-    s_copy(pdf_file_path,folder_name+"/"+folder_name+".pdf")
-    s_ma(folder_name,"zip",folder_name+"/")
-
-    print(folder_name,pdf_file_path,md_name)
-
-if __name__ == '__main__':
-#     arg_pdf_file_path = argv[1]   # runs on arg instead of hard set
-#     pdf_json_ipynb(arg_pdf_file_path)
-#
-#
-# test=True
-# if test:
-    tst_pdf_file_path="./r01.pdf"
-    pdf_json_ipynb(tst_pdf_file_path)
+if __name__ == "__main__":
+    raise SystemExit(main())

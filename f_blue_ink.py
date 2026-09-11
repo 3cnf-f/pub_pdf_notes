@@ -1,18 +1,10 @@
-import fitz
+"""Blue-ink (handwriting) annotation detection."""
 
-import logging
+#: RGB value used by the PDF reader for "blue" ink.
+BLUE_RGB = (0.0, 0.0, 1.0)
 
-logger = logging.getLogger(__name__)
-FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-logging.basicConfig(filename='example.log', encoding='utf-8',format=FORMAT)
-logger.setLevel(logging.DEBUG)
- 
-def checkbluey(in_annot):
-    if in_annot.colors["stroke"]:
-            if in_annot.colors["stroke"]==[0.0,0.0,1.0]:
-                return True
-            else:
-                return False
-    else:
-        return False
-     
+
+def is_blue_ink(annot):
+    """Return ``True`` when the annotation's stroke colour is blue."""
+    stroke = (annot.colors or {}).get("stroke")
+    return stroke == list(BLUE_RGB)

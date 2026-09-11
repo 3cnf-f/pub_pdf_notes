@@ -1,242 +1,155 @@
+"""Export a PDF's annotations (highlights, boxes, ink) to a JSON dict.
 
+The result mixes document-level metadata (DOI, PubMed citation, file uuid,
+timestamp) with one ``ANNOT#-N`` entry per annotation. Each annotation carries
+its highlighted text, popup note, bounding rect and a rendered PNG snapshot
+written into ``img_folder``.
+"""
 
-
-
-import fitz  # PyMuPDF
 import os
-import uuid,json
-import f_pdf_tools as f_p
-import f_metapub as f_mp
-import f_blue_ink as f_bi
-import logging
+import uuid
 
-#tar en pdf och exporterar som json, övriga uppgifter sköts av andra program eller moduler annotation av highlight, square och ink typ.
-#För ink och square så sparas en kopia på drive och en kopia laddas upp till hashim.se via sftp
-# Define the functions for SFTP and annotation processing (as previously discussed)
-# ...
+import fitz
 
- 
-logger = logging.getLogger(__name__)
-FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-logging.basicConfig(filename='example.log', encoding='utf-8', format=FORMAT)
-logger.setLevel(logging.DEBUG)
- 
-def rect_to_tuple(rec_in):
-    return str(rec_in)
+import f_blue_ink as blue_ink
+import f_metapub as metapub
+import f_pdf_tools as tools
 
-# Process highlight annotations
-def extract_highlight(annot, page,img_folder, img_counter,in_pdf_path):
+#: Write rendered PNG snapshots to disk.
+SAVE_IMAGES = True
+#: Print per-annotation progress/contents while processing.
+VERBOSE = False
+
+_ZOOM = 4.0      # pixmap scale factor (4x default resolution)
+_PAD = 20        # vertical context padding around a highlight
+
+# PyMuPDF annotation type ids.
+HIGHLIGHT = 8
+SQUARE = 4
+INK = 15
+
+#: Metadata fields copied from PubMed into the output document block.
+_META_FIELDS = [
+    "pmid", "title", "main_authors", "main_author", "journal", "abstract",
+    "volume", "issue", "pubmed_url", "issn", "date",
+]
+
+
+def _render_image(page, rect, img_folder, img_counter, pdf_path):
+    """Render the region ``rect`` to a PNG and return its filename."""
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(_ZOOM, _ZOOM), clip=rect)
+    stem = os.path.splitext(os.path.basename(pdf_path))[0]
+    img_name = f"{stem}-img{img_counter}.png"
+    if SAVE_IMAGES:
+        pixmap.save(os.path.join(img_folder, img_name))
+    return img_name
+
+
+def _highlight_rect(page, annot):
+    """Expand a highlight's rect vertically to include surrounding context."""
     rect = annot.rect
-    if int(rect.y0-20)>0:
-        left=int(rect.y0-20)
+    top = max(int(rect.y0 - _PAD), 0)
+    bottom = min(int(rect.y1 + _PAD), int(page.rect.y1))
+    return fitz.Rect(0, top, page.rect.x1, bottom)
+
+
+def extract_annotation(annot, page, img_folder, img_counter, pdf_path):
+    """Extract text, note and an image for a single annotation.
+
+    Returns ``(img_name, highlighted_text, note_text)``.
+    """
+    if annot.type[0] == HIGHLIGHT:
+        text_rect = annot.rect
+        img_rect = _highlight_rect(page, annot)
     else:
-        left=0
-    if int(rect.y1+20)<page.rect.y1:
-        right=int(rect.y1+20)
-    expand_rect=fitz.Rect(0,left,page.rect.x1,right)
+        text_rect = img_rect = annot.rect
 
-    words = page.get_text("words")
-    highlighted_words = [w for w in words if fitz.Rect(w[:4]).intersects(rect)]
-    annot_text = " ".join(w[4] for w in highlighted_words)
-    note_text = annot.info["content"] if "content" in annot.info else "No note"
-    note_text= note_text.replace("\n", " ") #ta bort cr cl
-    note_text= note_text.replace("\r", " ") #ta bort cr cl
-      # Set a higher DPI (e.g., 144 for double the default resolution)
-    zoom_x = 4.0  # Horizontal zoom
-    zoom_y = 4.0  # Vertical zoom
-    mat = fitz.Matrix(zoom_x, zoom_y)  # Transformation matr
-    pix = page.get_pixmap(matrix=mat, clip=expand_rect)
-    img_name = f"{os.path.basename(in_pdf_path).split('.')[0]}-img{img_counter}.png"
-    img_path = os.path.join(img_folder, img_name)
-    if toggle_save_img:
-        pix.save(img_path)
-    if toggle_print==True:
-        print(annot_text)
-    return  img_name,annot_text, note_text
+    highlighted_text = tools.words_in_rect(page, text_rect)
+    note_text = tools.annotation_note(annot)
+    img_name = _render_image(page, img_rect, img_folder, img_counter, pdf_path)
 
-def process_square(annot, page, img_folder, img_counter,in_pdf_path):
-    rect = annot.rect
-    words = page.get_text("words")
-    highlighted_words = [w for w in words if fitz.Rect(w[:4]).intersects(rect)]
-    annot_text = " ".join(w[4] for w in highlighted_words)
-     # Set a higher DPI (e.g., 144 for double the default resolution)
-    zoom_x = 4.0  # Horizontal zoom
-    zoom_y = 4.0  # Vertical zoom
-    mat = fitz.Matrix(zoom_x, zoom_y)  # Transformation matr
-    pix = page.get_pixmap(matrix=mat, clip=rect)
-    img_name = f"{os.path.basename(in_pdf_path).split('.')[0]}-img{img_counter}.png"
-    img_path = os.path.join(img_folder, img_name)
-    if toggle_save_img:
-        pix.save(img_path)
-
-  
-    # Extract annotation popup text
-    popup_text = annot.info["content"] if "content" in annot.info else "No note"
-    popup_text= popup_text.replace("\n", " ") #ta bort cr cl
-    popup_text= popup_text.replace("\r", " ") #ta bort cr cl
-    if toggle_print==True:
-        print(annot_text)
-    #print(popup_text)
-    return img_name, popup_text, annot_text  # Return image name, popup text, and highlighted words
-
-def process_ink(annot, page, img_folder, img_counter,in_pdf_path):
-    rect = annot.rect
-    words = page.get_text("words")
-    highlighted_words = [w for w in words if fitz.Rect(w[:4]).intersects(rect)]
-    annot_text = " ".join(w[4] for w in highlighted_words)
-     # Set a higher DPI (e.g., 144 for double the default resolution)
-    zoom_x = 4.0  # Horizontal zoom
-    zoom_y = 4.0  # Vertical zoom
-    mat = fitz.Matrix(zoom_x, zoom_y)  # Transformation matr
-    pix = page.get_pixmap(matrix=mat, clip=rect)
-    img_name = f"{os.path.basename(in_pdf_path).split('.')[0]}-img{img_counter}.png"
-    img_path = os.path.join(img_folder, img_name)
-    if toggle_save_img:
-        pix.save(img_path)
- 
-
-    # Extract annotation popup text
-    popup_text = annot.info["content"] if "content" in annot.info else "No note"
-    popup_text= popup_text.replace("\n", " ") #ta bort cr cl
-    popup_text= popup_text.replace("\r", " ") #ta bort cr cl
-    if toggle_print==True:
-        print(annot_text)
-    #print(popup_text)
-    return img_name, popup_text,annot_text  # Return image name and popup text
+    if VERBOSE:
+        print(highlighted_text)
+    return img_name, highlighted_text, note_text
 
 
+def _document_metadata(doi, meta):
+    """Build the document-level metadata block (journal article or handout)."""
+    meta = meta or {}
+    doc_meta = {field: str(meta.get(field) or "N/A") for field in _META_FIELDS}
+    doc_meta["course"] = str(meta.get("course") or "N/A")
+    if doi:
+        doc_meta["document_type"] = "journal_article"
+        doc_meta["DOI"] = doi
+    else:
+        doc_meta["document_type"] = "handout"
+        doc_meta["DOI"] = "N/A"
+    return doc_meta
 
 
-# Process the PDF and extract annotations
-def process_pdf_annotations(pdf_path, img_folder):
-    doc = fitz.open(pdf_path)
-    annotations_parent_dict={}
-    annotations_data = []
+def _annotation_entry(annot, page, page_no, img_counter, pdf_path, img_folder, parent, doi):
+    """Build the per-annotation dict for a single annotation."""
+    if annot.type[0] == HIGHLIGHT:
+        entry_type = "highlight"
+    elif annot.type[0] == SQUARE:
+        entry_type = "rectangle"
+    else:  # INK
+        entry_type = "blue_ink" if blue_ink.is_blue_ink(annot) else "non_blue_ink"
+
+    img_name, highlighted_text, note_text = extract_annotation(
+        annot, page, img_folder, img_counter, pdf_path
+    )
+
+    return {
+        "entry_type": entry_type,
+        "annot_uuid4": str(uuid.uuid4()),
+        "page_no": page_no,
+        "img_filename": img_name,
+        "highlighted_text": highlighted_text,
+        "annotation_text": note_text,
+        "rect": str(annot.rect),
+        "file_uuid4": parent["file_uuid4"],
+        "DOI": doi,
+        "main_author": parent.get("main_author"),
+        "date": parent.get("date"),
+        "title": parent.get("title"),
+        "course": parent.get("course"),
+    }
+
+
+def process_pdf(pdf_path, img_folder):
+    """Extract all annotations from ``pdf_path`` into a JSON-friendly dict.
+
+    Images are written into ``img_folder`` (created by the caller if needed).
+    """
+    doc = tools.open_pdf(pdf_path)
+
+    doi = tools.find_doi(doc[0])
+    if doi:
+        meta = metapub.fetch_metadata(doi=doi)
+    else:
+        meta = tools.metadata_from_annotations(doc[0])
+
+    parent = {
+        "file_uuid4": str(uuid.uuid4()),
+        "filename": pdf_path,
+        "file_datetime_stockholm": tools.stockholm_timestamp(),
+    }
+    parent.update(_document_metadata(doi, meta))
+
+    if VERBOSE and doi:
+        print("DOI on page 0:", doi)
+
     img_counter = 1
-    this_meta=None
-    this_doi=f_p.find_doi(doc[0])
-    if this_doi!=None:
-        print("Doi on page 0: "+str(this_doi))
-        this_meta=f_mp.meta_from_href(this_doi,"") #remember to this_doi,"" 
-    else:
-        this_meta=f_p.meta_from_annot(doc[0])
-    this_file_uuid4=str(uuid.uuid4())
-
-    file_datetime_stockholm=f_p.datetime_stockholm()
-
-
-
-    annotations_parent_dict.update({"file_uuid4":this_file_uuid4,"filename":pdf_path,"file_datetime_stockholm":file_datetime_stockholm})
-
-    if this_meta and this_doi!=None:
-        annotations_parent_dict.update({"document_type":"journal_article",
-            "pmid":str(this_meta["pmid"]),
-            "DOI":this_doi,
-            "title":str(this_meta["title"]),
-            "main_authors":str(this_meta["main_authors"]),
-            "main_author":str(this_meta["main_author"]),
-
-            "journal":str(this_meta["journal"]),
-            "abstract":str(this_meta["abstract"]),
-            "volume":str(this_meta["volume"]),
-            "issue":str(this_meta["issue"]),
-
-            "pubmed_url":str(this_meta["pubmed_url"]),
-            "issn":str(this_meta["issn"]),
-            "date":str(this_meta["date"]),
-            "course":"N/A",
-            })
-
-    if this_meta and this_doi==None:
-        #assume handour
-        annotations_parent_dict.update({"document_type":"handout",
-            "title":str(this_meta["title"]),
-            "main_author":str(this_meta["main_author"]),
-            "course":str(this_meta["course"]),
-            "pmid":"N/A",
-            "DOI":"N/A",
-            "main_authors":"N/A",
-
-            "journal":"N/A",
-            "abstract":"N/A",
-            "volume":"N/A",
-            "issue":"N/A",
-
-            "pubmed_url":"N/A",
-            "issn":"N/A",
-
-            "date":str(this_meta["date"]) })
-    
-            
-       ## ,        "pages":this_meta.pages,"issue":this_meta.issue,"volume":this_meta.volume,"doi":this_meta.doi,"pmid":this_meta.pmid,"publication":this_meta.journal,"title":this_meta.title,"abstract":this_meta.abstract,"year":this_meta.year})
- 
-
-    for p_no,page in enumerate(doc):
-
-
-        for annot in page.annots():
-            this_annot={}
-
-            if annot.type[0] == 8:  # Highlight
-
-                this_annot["entry_type"]="highlight"
-                this_annot["annot_uuid4"]=str(uuid.uuid4())
-                this_annot["page_no"]=p_no
-                this_annot["img_filename"],this_annot["highlighted_text"],  this_annot["annotation_text"] = extract_highlight(annot, page,img_folder, img_counter,pdf_path)
-                this_annot["rect"]=rect_to_tuple(annot.rect)
-                this_annot["file_uuid4"]=this_file_uuid4          
-                this_annot["main_author"]=this_meta["main_author"]
-                this_annot["date"]=this_meta["date"]
-                this_annot["title"]=this_meta["title"]
-                this_annot["course"]=annotations_parent_dict["course"]
-
-
-
-                annotations_parent_dict.update({"ANNOT#-"+str(img_counter):this_annot})
-                img_counter += 1
- 
-            elif annot.type[0] == 4:  # Square
-                this_annot["entry_type"]="rectangle"
-                this_annot["annot_uuid4"]=str(uuid.uuid4())
-                this_annot["page_no"]=p_no
-                this_annot["img_filename"], this_annot["annotation_text"], this_annot["highlighted_text"]   =  process_square(annot, page, img_folder, img_counter,pdf_path)
-                this_annot["rect"]=rect_to_tuple(annot.rect)
-                this_annot["DOI"]=this_doi      
-
-                this_annot["file_uuid4"]=this_file_uuid4                
-                this_annot["main_author"]=this_meta["main_author"]
-                this_annot["date"]=this_meta["date"]
-                this_annot["title"]=this_meta["title"]
-                this_annot["course"]=annotations_parent_dict["course"]
-                annotations_parent_dict.update({"ANNOT#-"+str(img_counter):this_annot})
-                
-                img_counter += 1
-            elif annot.type[0]== 15: # ink
-                if f_bi.checkbluey(annot): 
-                    this_annot["entry_type"]="blue_ink"
-                else:
-                    this_annot["entry_type"]="non_blue_ink"
-
-                this_annot["annot_uuid4"]=str(uuid.uuid4())
-                this_annot["page_no"]=p_no
-                this_annot["img_filename"], this_annot["annotation_text"], this_annot["highlighted_text"] = process_ink(annot, page, img_folder, img_counter,pdf_path)
-                this_annot["rect"]=rect_to_tuple(annot.rect)
-                this_annot["DOI"]=this_doi      
-
-                this_annot["file_uuid4"]=this_file_uuid4                
-                this_annot["main_author"]=this_meta["main_author"]
-                this_annot["date"]=this_meta["date"]
-                this_annot["title"]=this_meta["title"]
-                this_annot["course"]=annotations_parent_dict["course"]
-                annotations_parent_dict.update({"ANNOT#-"+str(img_counter):this_annot})
-
-
-                img_counter += 1
-            annotations_parent_dict.update(this_annot)
-
+    for page_no, page in enumerate(doc):
+        for annot in page.annots() or []:
+            if annot.type[0] not in (HIGHLIGHT, SQUARE, INK):
+                continue
+            entry = _annotation_entry(
+                annot, page, page_no, img_counter, pdf_path, img_folder, parent, doi
+            )
+            parent[f"ANNOT#-{img_counter}"] = entry
+            img_counter += 1
 
     doc.close()
-    #annotations_parent_dict.update({"i":{"a":"bla","ooo":"laa"}})
-    return annotations_parent_dict
-toggle_print=True
-toggle_save_img=True
+    return parent
